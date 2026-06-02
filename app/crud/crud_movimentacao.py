@@ -1,43 +1,107 @@
 from sqlalchemy.orm import Session
 from app.models.movimentacao_model import Movimentacao
-from app.models.variacao_model import Variacao
+from app.models.item_model import Item
 from app.schemas.movimentacao_schema import MovimentacaoCreate
+from app.crud.crud_audit import registrar_log
+from app.crud.crud_item import verificar_e_notificar_estoque
 from fastapi import HTTPException, status
 
-def registrar_movimentacao(db: Session, data: MovimentacaoCreate, usuario_id: int):
-    variacao = db.query(Variacao).filter(Variacao.id == data.variacao_id).first()
-    if not variacao:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Variação não encontrada")
+STATUS_ENTRADA = "disponivel"
+MOTIVOS_STATUS = {
+    "venda": "vendido",
+    "descarte": "danificado",
+    "manutencao": "em_manutencao",
+    "devolucao": "disponivel",
+    "ajuste": "disponivel",
+    "ajuste de inventário": "disponivel",
+    "compra": "disponivel",
+}
 
-    if data.tipo == "saida":
-        if variacao.quantidade_estoque < data.quantidade:
+def registrar_movimentacao(db: Session, data: MovimentacaoCreate, usuario_id: int):
+    item = db.query(Item).filter(Item.id == data.item_id).first()
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item não encontrado")
+    if not item.ativo:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item inativo")
+
+    status_anterior = item.status
+
+    if data.tipo == "entrada":
+        item.status = "disponivel"
+    elif data.tipo == "saida":
+        if item.status != "disponivel":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Estoque insuficiente. Disponível: {variacao.quantidade_estoque}"
+                detail=f"Item não está disponível. Status atual: {item.status}"
             )
-        variacao.quantidade_estoque -= data.quantidade
-    elif data.tipo == "entrada":
-        variacao.quantidade_estoque += data.quantidade
+        motivo_normalizado = (data.motivo or "").lower()
+        item.status = MOTIVOS_STATUS.get(motivo_normalizado, "vendido")
     else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tipo deve ser 'entrada' ou 'saida'")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tipo deve ser 'entrada' ou 'saida'"
+        )
 
     movimentacao = Movimentacao(
-        variacao_id=data.variacao_id,
+        item_id=data.item_id,
         usuario_id=usuario_id,
         tipo=data.tipo,
         motivo=data.motivo,
-        quantidade=data.quantidade,
+        status_anterior=status_anterior,
+        status_novo=item.status,
         observacao=data.observacao
     )
     db.add(movimentacao)
     db.commit()
     db.refresh(movimentacao)
+
+    registrar_log(
+        db, usuario_id, "CREATE", "movimentacao", movimentacao.id,
+        f"Movimentação {data.tipo} — Item: {item.numero_serie} — Motivo: {data.motivo} — Status: {status_anterior} → {item.status}"
+    )
+
+    verificar_e_notificar_estoque(db, item.produto_id)
+
     return movimentacao
 
-def listar_movimentacoes(db: Session, skip: int = 0, limit: int = 100, tipo: str = None, variacao_id: int = None):
+def atualizar_movimentacao(db: Session, movimentacao_id: int, observacao: str, usuario_id: int):
+    movimentacao = db.query(Movimentacao).filter(Movimentacao.id == movimentacao_id).first()
+    if not movimentacao:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Movimentação não encontrada")
+
+    observacao_anterior = movimentacao.observacao
+    movimentacao.observacao = observacao
+    db.commit()
+    db.refresh(movimentacao)
+
+    registrar_log(
+        db, usuario_id, "UPDATE", "movimentacao", movimentacao.id,
+        f"Observação alterada de '{observacao_anterior}' para '{observacao}'"
+    )
+
+    return movimentacao
+
+def deletar_movimentacao(db: Session, movimentacao_id: int, usuario_id: int):
+    movimentacao = db.query(Movimentacao).filter(Movimentacao.id == movimentacao_id).first()
+    if not movimentacao:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Movimentação não encontrada")
+
+    item = db.query(Item).filter(Item.id == movimentacao.item_id).first()
+    numero_serie = item.numero_serie if item else f"item_id={movimentacao.item_id}"
+
+    registrar_log(
+        db, usuario_id, "DELETE", "movimentacao", movimentacao.id,
+        f"Movimentação removida — Tipo: {movimentacao.tipo} — Item: {numero_serie} — Motivo: {movimentacao.motivo}"
+    )
+
+    db.delete(movimentacao)
+    db.commit()
+    return movimentacao
+
+def listar_movimentacoes(db: Session, skip: int = 0, limit: int = 100000, tipo: str = None, item_id: int = None):
     query = db.query(Movimentacao)
     if tipo:
         query = query.filter(Movimentacao.tipo == tipo)
-    if variacao_id:
-        query = query.filter(Movimentacao.variacao_id == variacao_id)
+    if item_id:
+        query = query.filter(Movimentacao.item_id == item_id)
     return query.order_by(Movimentacao.criado_em.desc()).offset(skip).limit(limit).all()

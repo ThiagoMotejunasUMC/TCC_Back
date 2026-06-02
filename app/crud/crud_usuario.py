@@ -2,9 +2,10 @@ from sqlalchemy.orm import Session
 from app.models.usuario_model import Usuario
 from app.schemas.usuario_schema import UsuarioCreate, UsuarioUpdate, UsuarioUpdateSenha
 from app.core.security import hash_password, verify_password, validate_password_strength
+from app.crud.crud_audit import registrar_log
 from fastapi import HTTPException, status
 
-def criar_usuario(db: Session, data: UsuarioCreate):
+def criar_usuario(db: Session, data: UsuarioCreate, usuario_id: int = None):
     if not validate_password_strength(data.senha):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -21,9 +22,11 @@ def criar_usuario(db: Session, data: UsuarioCreate):
     db.add(usuario)
     db.commit()
     db.refresh(usuario)
+    if usuario_id:
+        registrar_log(db, usuario_id, "CREATE", "usuario", usuario.id, f"Usuário criado: {usuario.email} — cargo: {usuario.cargo}")
     return usuario
 
-def listar_usuarios(db: Session, skip: int = 0, limit: int = 100):
+def listar_usuarios(db: Session, skip: int = 0, limit: int = 1000):
     return db.query(Usuario).offset(skip).limit(limit).all()
 
 def obter_usuario_por_id(db: Session, usuario_id: int):
@@ -32,14 +35,17 @@ def obter_usuario_por_id(db: Session, usuario_id: int):
 def obter_usuario_por_email(db: Session, email: str):
     return db.query(Usuario).filter(Usuario.email == email).first()
 
-def atualizar_usuario(db: Session, usuario_id: int, data: UsuarioUpdate):
+def atualizar_usuario(db: Session, usuario_id: int, data: UsuarioUpdate, executor_id: int = None):
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not usuario:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
-    for field, value in data.model_dump(exclude_unset=True).items():
+    campos = data.model_dump(exclude_unset=True)
+    for field, value in campos.items():
         setattr(usuario, field, value)
     db.commit()
     db.refresh(usuario)
+    if executor_id:
+        registrar_log(db, executor_id, "UPDATE", "usuario", usuario.id, f"Campos atualizados: {list(campos.keys())}")
     return usuario
 
 def atualizar_senha(db: Session, usuario: Usuario, data: UsuarioUpdateSenha):
@@ -53,12 +59,16 @@ def atualizar_senha(db: Session, usuario: Usuario, data: UsuarioUpdateSenha):
     usuario.senha = hash_password(data.nova_senha)
     db.commit()
     db.refresh(usuario)
+    registrar_log(db, usuario.id, "UPDATE", "usuario", usuario.id, "Senha alterada pelo próprio usuário")
     return usuario
 
-def deletar_usuario(db: Session, usuario_id: int):
+def deletar_usuario(db: Session, usuario_id: int, executor_id: int = None):
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     if not usuario:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
-    db.delete(usuario)
+    usuario.ativo = False
     db.commit()
+    db.refresh(usuario)
+    if executor_id:
+        registrar_log(db, executor_id, "DELETE", "usuario", usuario.id, f"Usuário desativado: {usuario.email}")
     return usuario

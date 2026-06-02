@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    EMAIL_FROM: str = ""
+    EMAIL_PASSWORD: str = ""
+    FRONTEND_URL: str = "http://localhost:5173"
 
     class Config:
         env_file = ".env"

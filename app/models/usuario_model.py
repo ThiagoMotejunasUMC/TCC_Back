@@ -12,7 +12,10 @@ class Usuario(Base):
     senha = Column(String, nullable=False)
     cargo = Column(String, default="operador")  # admin, diretor, operador
     ativo = Column(Boolean, default=True)
+    primeiro_acesso = Column(Boolean, default=True)
     criado_em = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     movimentacoes = relationship("Movimentacao", back_populates="usuario")
     audit_logs = relationship("AuditLog", back_populates="usuario")
+    password_reset_tokens = relationship("PasswordResetToken", back_populates="usuario")
+    notificacoes = relationship("Notificacao", back_populates="usuario")

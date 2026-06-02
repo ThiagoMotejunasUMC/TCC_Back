@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -11,12 +11,17 @@ class Fornecedor(Base):
     cnpj = Column(String, unique=True, nullable=True)
     email = Column(String, nullable=True)
     telefone = Column(String, nullable=True)
+    celular = Column(String, nullable=True)
+    site = Column(String, nullable=True)
+    observacao = Column(String, nullable=True)
     cep = Column(String, nullable=True)
     logradouro = Column(String, nullable=True)
     numero = Column(String, nullable=True)
+    complemento = Column(String, nullable=True)
     bairro = Column(String, nullable=True)
     cidade = Column(String, nullable=True)
     estado = Column(String, nullable=True)
+    ativo = Column(Boolean, default=True)
     criado_em = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     produtos = relationship("Produto", back_populates="fornecedor")

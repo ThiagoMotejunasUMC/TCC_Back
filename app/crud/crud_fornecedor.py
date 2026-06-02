@@ -1,16 +1,19 @@
 from sqlalchemy.orm import Session
 from app.models.fornecedor_model import Fornecedor
 from app.schemas.fornecedor_schema import FornecedorCreate, FornecedorUpdate
+from app.crud.crud_audit import registrar_log
 from fastapi import HTTPException, status
 
-def criar_fornecedor(db: Session, data: FornecedorCreate):
+def criar_fornecedor(db: Session, data: FornecedorCreate, usuario_id: int = None):
     fornecedor = Fornecedor(**data.model_dump())
     db.add(fornecedor)
     db.commit()
     db.refresh(fornecedor)
+    if usuario_id:
+        registrar_log(db, usuario_id, "CREATE", "fornecedor", fornecedor.id, f"Fornecedor criado: {fornecedor.nome}")
     return fornecedor
 
-def listar_fornecedores(db: Session, skip: int = 0, limit: int = 100, busca: str = None):
+def listar_fornecedores(db: Session, skip: int = 0, limit: int = 1000, busca: str = None):
     query = db.query(Fornecedor)
     if busca:
         query = query.filter(Fornecedor.nome.ilike(f"%{busca}%"))
@@ -22,16 +25,22 @@ def obter_fornecedor(db: Session, fornecedor_id: int):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fornecedor não encontrado")
     return fornecedor
 
-def atualizar_fornecedor(db: Session, fornecedor_id: int, data: FornecedorUpdate):
+def atualizar_fornecedor(db: Session, fornecedor_id: int, data: FornecedorUpdate, usuario_id: int = None):
     fornecedor = obter_fornecedor(db, fornecedor_id)
-    for field, value in data.model_dump(exclude_unset=True).items():
+    campos = data.model_dump(exclude_unset=True)
+    for field, value in campos.items():
         setattr(fornecedor, field, value)
     db.commit()
     db.refresh(fornecedor)
+    if usuario_id:
+        registrar_log(db, usuario_id, "UPDATE", "fornecedor", fornecedor.id, f"Campos atualizados: {list(campos.keys())}")
     return fornecedor
 
-def deletar_fornecedor(db: Session, fornecedor_id: int):
+def deletar_fornecedor(db: Session, fornecedor_id: int, usuario_id: int = None):
     fornecedor = obter_fornecedor(db, fornecedor_id)
-    db.delete(fornecedor)
+    fornecedor.ativo = False
     db.commit()
+    db.refresh(fornecedor)
+    if usuario_id:
+        registrar_log(db, usuario_id, "DELETE", "fornecedor", fornecedor.id, f"Fornecedor desativado: {fornecedor.nome}")
     return fornecedor

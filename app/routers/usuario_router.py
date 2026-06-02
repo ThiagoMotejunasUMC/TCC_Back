@@ -9,11 +9,17 @@ from typing import List
 router = APIRouter(prefix="/usuarios", tags=["Usuários"])
 
 @router.post("/", response_model=UsuarioResponse)
-def criar_usuario(data: UsuarioCreate, db: Session = Depends(get_db), _: Usuario = Depends(require_admin)):
-    return crud_usuario.criar_usuario(db, data)
+def criar_usuario(
+    data: UsuarioCreate,
+    db: Session = Depends(get_db), current_user: Usuario = Depends(require_admin)
+):
+    return crud_usuario.criar_usuario(db, data, usuario_id=current_user.id)
 
 @router.get("/", response_model=List[UsuarioResponse])
-def listar_usuarios(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), _: Usuario = Depends(require_admin)):
+def listar_usuarios(
+    skip: int = 0, limit: int = 1000,
+    db: Session = Depends(get_db), _: Usuario = Depends(require_admin)
+):
     return crud_usuario.listar_usuarios(db, skip, limit)
 
 @router.get("/me", response_model=UsuarioResponse)
@@ -21,22 +27,37 @@ def obter_meu_perfil(current_user: Usuario = Depends(get_current_user)):
     return current_user
 
 @router.put("/me", response_model=UsuarioResponse)
-def atualizar_meu_perfil(data: UsuarioUpdate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
-    data_sem_cargo = data.model_dump(exclude_unset=True)
-    data_sem_cargo.pop("cargo", None)
-    data_sem_cargo.pop("ativo", None)
-    from app.schemas.usuario_schema import UsuarioUpdate
-    return crud_usuario.atualizar_usuario(db, current_user.id, UsuarioUpdate(**data_sem_cargo))
+def atualizar_meu_perfil(
+    data: UsuarioUpdate,
+    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+):
+    data_dict = data.model_dump(exclude_unset=True)
+    data_dict.pop("cargo", None)
+    data_dict.pop("ativo", None)
+    return crud_usuario.atualizar_usuario(
+        db, current_user.id,
+        UsuarioUpdate(**data_dict),
+        executor_id=current_user.id
+    )
 
 @router.put("/me/senha")
-def atualizar_minha_senha(data: UsuarioUpdateSenha, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def atualizar_minha_senha(
+    data: UsuarioUpdateSenha,
+    db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
+):
     crud_usuario.atualizar_senha(db, current_user, data)
     return {"mensagem": "Senha atualizada com sucesso"}
 
 @router.put("/{usuario_id}", response_model=UsuarioResponse)
-def atualizar_usuario(usuario_id: int, data: UsuarioUpdate, db: Session = Depends(get_db), _: Usuario = Depends(require_admin)):
-    return crud_usuario.atualizar_usuario(db, usuario_id, data)
+def atualizar_usuario(
+    usuario_id: int, data: UsuarioUpdate,
+    db: Session = Depends(get_db), current_user: Usuario = Depends(require_admin)
+):
+    return crud_usuario.atualizar_usuario(db, usuario_id, data, executor_id=current_user.id)
 
 @router.delete("/{usuario_id}", response_model=UsuarioResponse)
-def deletar_usuario(usuario_id: int, db: Session = Depends(get_db), _: Usuario = Depends(require_admin)):
-    return crud_usuario.deletar_usuario(db, usuario_id)
+def deletar_usuario(
+    usuario_id: int,
+    db: Session = Depends(get_db), current_user: Usuario = Depends(require_admin)
+):
+    return crud_usuario.deletar_usuario(db, usuario_id, executor_id=current_user.id)
